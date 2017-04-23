@@ -1,6 +1,5 @@
-# Copyright (C) 2013-2016 Danilo Bargen
-# CircuitPython variant by Dan Halbert
 # Copyright (C) 2017 Dan Halbert
+# Adapted from https://github.com/dbrgn/RPLCD, Copyright (C) 2013-2016 Danilo Bargen
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy of
 # this software and associated documentation files (the "Software"), to deal in
@@ -91,64 +90,52 @@ class CursorMode:
 MICROSECOND = 1e-6
 MILLISECOND = 1e-3
 
-class BaseCharLCD(object):
+class LCD(object):
 
-    def __init__(self, cols=20, rows=4, dotsize=8, auto_linebreaks=True):
+    def __init__(self, interface, num_cols=20, num_rows=4, char_height=8):
         """
-        Character LCD controller. Base class only, you should use a subclass.
-
-        Args:
-            rows:
-                Number of display rows (usually 1, 2 or 4). Default: 4.
-            cols:
-                Number of columns per row (usually 16 or 20). Default 20.
-            dotsize:
-                Some 1 line displays allow a font height of 10px.
+        Character LCD controller.
+        
+        :param interface: Communication interface, such as I2CInterface
+        :param num_rows: Number of display rows (usually 1, 2 or 4). Default: 4.
+        :param num_cols: Number of columns per row (usually 16 or 20). Default 20.
+        :param char_height: Some 1 line displays allow a font height of 10px.
                 Allowed: 8 or 10. Default: 8.
-            auto_linebreaks:
-                Whether or not to automatically insert line breaks.
-                Default: True.
-
         """
-        if dotsize not in (8, 10):
-            raise ValueError('The ``dotsize`` argument should be either 8 or 10.')
-        self.dotsize = dotsize
+        self.interface = interface
+        
+        if char_height not in (8, 10):
+            raise ValueError('The ``char_height`` argument should be either 8 or 10.')
+        self.char_height = char_height
 
-        self.rows = rows
-        self.cols = cols
-
+        self.num_rows = num_rows
+        self.num_cols = num_cols
+        
         # get row addresses (varies based on display size)
-        self.row_offsets = (0x00, 0x40, self.cols, 0x40 + self.cols)
-
-        # Set up auto linebreaks
-        self.auto_linebreaks = auto_linebreaks
-        self.recent_auto_linebreak = False
-
+        self._row_offsets = (0x00, 0x40, self.num_cols, 0x40 + self.num_cols)
+ 
         # Setup initial display configuration
-        displayfunction = self.data_bus_mode | _LCD_5x8DOTS
-        if self.rows == 1:
+        displayfunction = self.interface.data_bus_mode | _LCD_5x8DOTS
+        if self.num_rows == 1:
             displayfunction |= _LCD_1LINE
-        elif self.rows in (2, 4):
+        elif self.num_rows in (2, 4):
             # LCD only uses two lines on 4 row displays
             displayfunction |= _LCD_2LINE
-        if self.dotsize == 10:
+        if self.char_height == 10:
             # For some 1 line displays you can select a 10px font.
             displayfunction |= _LCD_5x10DOTS
 
-        # Initialize display
-        self._init_connection()
-
         # Choose 4 or 8 bit mode
-        if self.data_bus_mode == LCD_4BITMODE:
+        self.command(0x03)
+        time.sleep(4.5*MILLISECOND)
+        self.command(0x03)
+        time.sleep(4.5*MILLISECOND)
+        self.command(0x03)
+        if self.interface.data_bus_mode == LCD_4BITMODE:
             # Hitachi manual page 46
-            self.command(0x03)
-            time.sleep(4.5*MILLISECOND)
-            self.command(0x03)
-            time.sleep(4.5*MILLISECOND)
-            self.command(0x03)
             time.sleep(100*MICROSECOND)
             self.command(0x02)
-        elif self.data_bus_mode == _LCD_8BITMODE:
+        elif self.interface.data_bus_mode == _LCD_8BITMODE:
             # Hitachi manual page 45
             self.command(0x30)
             time.sleep(4.5*MILLISECOND)
@@ -156,152 +143,105 @@ class BaseCharLCD(object):
             time.sleep(100*MICROSECOND)
             self.command(0x30)
         else:
-            raise ValueError('Invalid data bus mode: {}'.format(self.data_bus_mode))
+            raise ValueError('Invalid data bus mode: {}'.format(self.interface.data_bus_mode))
 
         # Write configuration to display
         self.command(_LCD_FUNCTIONSET | displayfunction)
         time.sleep(50*MICROSECOND)
 
-        # Configure display mode
+        # Configure entry mode. Define internal fields.
+        self._text_align_mode = Alignment.LEFT
+        self._display_shift_mode = ShiftMode.CURSOR
+        self.command(_LCD_ENTRYMODESET | self._text_align_mode | self._display_shift_mode)
+        time.sleep(50*MICROSECOND)
+
+        # Configure display mode. Define internal fields.
         self._display_mode = _LCD_DISPLAYON
-        self._cursor_mode = int(CursorMode.HIDE)
+        self._cursor_mode = CursorMode.HIDE
         self.command(_LCD_DISPLAYCONTROL | self._display_mode | self._cursor_mode)
         time.sleep(50*MICROSECOND)
 
-        # Clear display
         self.clear()
 
-        # Configure entry mode
-        self._text_align_mode = int(Alignment.LEFT)
-        self._display_shift_mode = int(ShiftMode.CURSOR)
-        self._cursor_pos = (0, 0)
-        self.command(_LCD_ENTRYMODESET | self._text_align_mode | self._display_shift_mode)
-        time.sleep(50*MICROSECOND)
+    def close(self):
+        self.interface.deinit()
 
-    def close(self, clear=False):
-        if clear:
-            self.clear()
-        self._close_connection()
+    def set_backlight(self, value):
+        self.interface.backlight = value
 
-    # Properties
-    @property
-    def cursor_pos(self):
-        """The cursor position as a 2-tuple (row, col)."""
-        return self._cursor_pos
-
-    @cursor_pos.setter
-    def cursor_pos(self, value):
-        if len(value) != 2:
-            raise ValueError('Cursor position should be determined by a 2-tuple.')
-        if not (0 <= value[0] < self.rows) or not (0 <= value[1] < self.cols):
-            raise ValueError('Cursor position {pos!r} invalid on a {lcd.rows}x{lcd.cols} LCD.'.format(pos=value, lcd=self))
-        self._cursor_pos = value
-        self.command(_LCD_SETDDRAMADDR | self.row_offsets[value[0]] + value[1])
-        time.sleep(50*MICROSECOND)
-
-    @property
-    def text_align_mode(self):
-        """The text alignment (``Alignment.LEFT`` or ``Alignment.RIGHT``)."""
-        return self._text_align_mode
-
-    @text_align_mode.setter
-    def text_align_mode(self, value):
+    def set_text_align_mode(self, value):
         self._text_align_mode = value
-        self.command(_LCD_ENTRYMODESET | self._text_align_mode | self._display_shift_mode)
-        time.sleep(50*MICROSECOND)
 
-    @property
-    def write_shift_mode(self):
-        """The shift mode when writing (``ShiftMode.CURSOR`` or ``ShiftMode.DISPLAY``)."""
-        return self._display_shift_mode
-
-    @write_shift_mode.setter
-    def write_shift_mode(self, value):
+    def set_display_shift_mode(self, value):
         self._display_shift_mode = value
         self.command(_LCD_ENTRYMODESET | self._text_align_mode | self._display_shift_mode)
         time.sleep(50*MICROSECOND)
 
-    @property
-    def display_enabled(self):
-        """Whether or not to display any characters."""
-        return self._display_mode == _LCD_DISPLAYON
-
-    @display_enabled.setter
-    def display_enabled(self, value):
+    def set_display_enabled(self, value):
         self._display_mode = _LCD_DISPLAYON if value else _LCD_DISPLAYOFF
         self.command(_LCD_DISPLAYCONTROL | self._display_mode | self._cursor_mode)
         time.sleep(50*MICROSECOND)
 
-    @property
-    def cursor_mode(self):
-        """How the cursor should behave (``CursorMode.HIDE``, ``CursorMode.LINE`` or ``CursorMode.BLINK``."""
-        return self._cursor_mode
-
-    @cursor_mode.setter
-    def cursor_mode(self, value):
+    def set_cursor_mode(self, value):
         self._cursor_mode = value
         self.command(_LCD_DISPLAYCONTROL | self._display_mode | self._cursor_mode)
         time.sleep(50*MICROSECOND)
 
-    # High level commands
+    def cursor_pos(self):
+        """The cursor position as a 2-tuple (row, col)."""
+        return (self._row, self._col)
 
-    def print(self, value):
+    def set_cursor_pos(self, row, col):
+        if not (0 <= row < self.num_rows):
+            raise ValueError('row should be in range 0-{}'.format(self.num_rows - 1))
+        if not (0 <= col < self.num_cols):
+            raise ValueError('col should be in range 0-{}'.format(self.num_cols - 1))
+        self._row = row
+        self._col = col
+        self.command(_LCD_SETDDRAMADDR | self._row_offsets[row] + col)
+        time.sleep(50*MICROSECOND)
+
+    def print(self, string):
         """
         Write the specified unicode string to the display.
 
         To control multiline behavior, use newline (``\\n``) and carriage
-        return (``\\r``) characters.
+        return (``\\r``) characters. Newline moves to the next row without
+        resetting the column to the left or right side. Carriage return
+        moves to the left or right side of the current row.
 
-        Lines that are too long automatically continue on next line, as long as
-        ``auto_linebreaks`` has not been disabled.
+        Lines that are too long automatically continue on next line.
 
         Only characters with an ``ord()`` value between 0 and 255 are currently
         supported.
 
         """
-        ignored = None  # Used for ignoring manual linebreaks after auto linebreaks
-        for char in value:
+        for char in string:
             # Write regular chars
             if char not in '\n\r':
                 self.write(ord(char))
-                ignored = None
                 continue
-            # If an auto linebreak happened recently, ignore this write.
-            if self.recent_auto_linebreak is True:
-                # No newline chars have been ignored yet. Do it this time.
-                if ignored is None:
-                    ignored = char
-                    continue
-                # A newline character has been ignored recently. If the current
-                # character is different, ignore it again. Otherwise, reset the
-                # ignored character tracking.
-                if ignored != char:  # A carriage return and a newline
-                    ignored = None  # Reset ignore list
-                    continue
             # Handle newlines and carriage returns
-            row, col = self.cursor_pos
             if char == '\n':
-                if row < self.rows - 1:
-                    self.cursor_pos = (row + 1, col)
-                else:
-                    self.cursor_pos = (0, col)
+                row = (self._row + 1) % self.num_rows
             elif char == '\r':
-                if self.text_align_mode == Alignment.LEFT:
-                    self.cursor_pos = (row, 0)
+                if self._text_align_mode == Alignment.LEFT:
+                    col = 0
                 else:
-                    self.cursor_pos = (row, self.cols - 1)
+                    col = self.num_cols - 1
+            self.set_cursor_pos(row, col)
 
     def clear(self):
         """Overwrite display with blank characters and reset cursor position."""
         self.command(_LCD_CLEARDISPLAY)
-        self._cursor_pos = (0, 0)
-        self._content = [[0x20] * self.cols for _ in range(self.rows)]
         time.sleep(2*MILLISECOND)
+        self.home()
 
     def home(self):
         """Set cursor to initial position and reset any shifting."""
         self.command(_LCD_RETURNHOME)
-        self._cursor_pos = (0, 0)
+        self._row = 0
+        self._col = 0
         time.sleep(2*MILLISECOND)
 
     def shift_display(self, amount):
@@ -351,53 +291,42 @@ class BaseCharLCD(object):
             raise ValueError('Bitmap should have exactly 8 rows.')
 
         # Store previous position
-        pos = self.cursor_pos
+        save_row = self._row
+        save_col = self._col
 
         # Write character to CGRAM
         self.command(_LCD_SETCGRAMADDR | location << 3)
         for row in bitmap:
-            self._send(row, _RS_DATA)
+            self.interface.send(row, _RS_DATA)
 
         # Restore cursor pos
-        self.cursor_pos = pos
-
-    # Mid level commands
+        self.set_cursor_pos(save_row, save_col)
 
     def command(self, value):
         """Send a raw command to the LCD."""
-        self._send(value, _RS_INSTRUCTION)
+        self.interface.send(value, _RS_INSTRUCTION)
 
     def write(self, value):
         """Write a raw character byte to the LCD."""
-
-        # Get current position
-        row, col = self._cursor_pos
-        self._send(value, _RS_DATA)
-
-        # Update cursor position.
-        if self.text_align_mode == Alignment.LEFT:
-            if self.auto_linebreaks is False or col < self.cols - 1:
-                # No newline, update internal pointer
-                newpos = (row, col + 1)
-                self._cursor_pos = newpos
-                self.recent_auto_linebreak = False
+        self.interface.send(value, _RS_DATA)
+        if self._text_align_mode == Alignment.LEFT:
+            if self._col < self.num_cols - 1:
+                # Char was placed on current line. No need to reposition cursor.
+                self._col += 1
             else:
-                # Newline, reset pointer
-                if row < self.rows - 1:
-                    self.cursor_pos = (row + 1, 0)
-                else:
-                    self.cursor_pos = (0, 0)
-                self.recent_auto_linebreak = True
+                # At end of line: go to left side next row. Wrap around to first row if on last row.
+                self.set_cursor_pos((self._row + 1) % self.num_rows, 0)
         else:
-            if self.auto_linebreaks is False or col > 0:
-                # No newline, update internal pointer
-                newpos = (row, col - 1)
-                self._cursor_pos = newpos
-                self.recent_auto_linebreak = False
+            # Right-aligned text.
+            if self._col > 0:
+                # Space available to the left. Go to previous column.
+                # No need to reposition cursor.
+                self._col =- 1
             else:
-                # Newline, reset pointer
-                if row < self.rows - 1:
-                    self.cursor_pos = (row + 1, self.cols - 1)
-                else:
-                    self.cursor_pos = (0, self.cols - 1)
-                self.recent_auto_linebreak = True
+                # Newline, go to right side of next row. Wrap around to first row if on last row.
+                self.set_cursor_pos((self._row + 1) % self.num_rows, self.num_cols -1)
+
+        # Internal increment may put cursor at wrong place. Reset to where we
+        # want the next character to go.
+        self.set_cursor_pos(self._row, self._col)
+
