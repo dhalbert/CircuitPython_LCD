@@ -72,16 +72,6 @@ PIN_ENABLE = const(0x4)
 PIN_READ_WRITE = const(0x2)
 PIN_REGISTER_SELECT = const(0x1)
 
-# Enums
-
-class Alignment:
-    LEFT = const(_LCD_ENTRYLEFT)
-    RIGHT = const(_LCD_ENTRYRIGHT)
-
-class ShiftMode:
-    CURSOR = const(_LCD_ENTRYSHIFTDECREMENT)
-    DISPLAY = const(_LCD_ENTRYSHIFTINCREMENT)
-
 class CursorMode:
     HIDE = const(_LCD_CURSOROFF | _LCD_BLINKOFF)
     LINE = const(_LCD_CURSORON | _LCD_BLINKOFF)
@@ -150,9 +140,7 @@ class LCD(object):
         time.sleep(50*MICROSECOND)
 
         # Configure entry mode. Define internal fields.
-        self._text_align_mode = Alignment.LEFT
-        self._display_shift_mode = ShiftMode.CURSOR
-        self.command(_LCD_ENTRYMODESET | self._text_align_mode | self._display_shift_mode)
+        self.command(_LCD_ENTRYMODESET | _LCD_ENTRYLEFT)
         time.sleep(50*MICROSECOND)
 
         # Configure display mode. Define internal fields.
@@ -168,14 +156,6 @@ class LCD(object):
 
     def set_backlight(self, value):
         self.interface.backlight = value
-
-    def set_text_align_mode(self, value):
-        self._text_align_mode = value
-
-    def set_display_shift_mode(self, value):
-        self._display_shift_mode = value
-        self.command(_LCD_ENTRYMODESET | self._text_align_mode | self._display_shift_mode)
-        time.sleep(50*MICROSECOND)
 
     def set_display_enabled(self, value):
         self._display_mode = _LCD_DISPLAYON if value else _LCD_DISPLAYOFF
@@ -217,19 +197,15 @@ class LCD(object):
 
         """
         for char in string:
-            # Write regular chars
-            if char not in '\n\r':
-                self.write(ord(char))
-                continue
-            # Handle newlines and carriage returns
             if char == '\n':
-                row = (self._row + 1) % self.num_rows
+                # Advance to next row, at same column position
+                self.set_cursor_pos((self._row + 1) % self.num_rows, self._col)
             elif char == '\r':
-                if self._text_align_mode == Alignment.LEFT:
-                    col = 0
-                else:
-                    col = self.num_cols - 1
-            self.set_cursor_pos(row, col)
+                # Return to left side of current row.
+                self.set_cursor_pos(self._row, 0)
+            else:
+                self.write(ord(char))
+
 
     def clear(self):
         """Overwrite display with blank characters and reset cursor position."""
@@ -309,22 +285,12 @@ class LCD(object):
     def write(self, value):
         """Write a raw character byte to the LCD."""
         self.interface.send(value, _RS_DATA)
-        if self._text_align_mode == Alignment.LEFT:
-            if self._col < self.num_cols - 1:
-                # Char was placed on current line. No need to reposition cursor.
-                self._col += 1
-            else:
-                # At end of line: go to left side next row. Wrap around to first row if on last row.
-                self.set_cursor_pos((self._row + 1) % self.num_rows, 0)
+        if self._col < self.num_cols - 1:
+            # Char was placed on current line. No need to reposition cursor.
+            self._col += 1
         else:
-            # Right-aligned text.
-            if self._col > 0:
-                # Space available to the left. Go to previous column.
-                # No need to reposition cursor.
-                self._col =- 1
-            else:
-                # Newline, go to right side of next row. Wrap around to first row if on last row.
-                self.set_cursor_pos((self._row + 1) % self.num_rows, self.num_cols -1)
+            # At end of line: go to left side next row. Wrap around to first row if on last row.
+            self.set_cursor_pos((self._row + 1) % self.num_rows, 0)
 
         # Internal increment may put cursor at wrong place. Reset to where we
         # want the next character to go.
