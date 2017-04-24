@@ -7,7 +7,7 @@ Current PCF8574 is supported.
 The original code started with the RPLCD library by Danilo Bargen, in https://github.com/dbrgn/RPLCD,
 but it has been reworked considerably.
 
-lcd/lcd.py is too big to use as `.py`. Use `mpy-cross` to convert the `.py` files into `.mpy`.
+``lcd/lcd.py`` is too big to use as ``.py``. Use ``mpy-cross`` to convert the ``.py`` files into ``.mpy``.
 
 Usage Example
 =============
@@ -15,7 +15,7 @@ Usage Example
 The ``LCD`` supports character LCDs using the HD77480 chip.
 
 The interface to the LCD is separated into an ``Interface`` class.
-Currently there is only one such class: `I2CPCF8574Interface.
+Currently there is only one such class: ``I2CPCF8574Interface``.
 
 .. code-block:: python
 
