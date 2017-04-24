@@ -2,7 +2,7 @@ Introduction
 ============
 
 CircuitPython library for HD77480 LCD character displays with an I2C backpack.
-Current PCF8574 is supported.
+Currently PCF8574 is supported.
 
 The original code started with the RPLCD library by Danilo Bargen, in https://github.com/dbrgn/RPLCD,
 but it has been reworked considerably.
