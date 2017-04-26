@@ -184,12 +184,7 @@ class LCD(object):
     def print(self, string):
         """
         Write the specified unicode string to the display.
-
-        To control multiline behavior, use newline (``\\n``) and carriage
-        return (``\\r``) characters. Newline moves to the next row without
-        resetting the column to the left or right side. Carriage return
-        moves to the left or right side of the current row.
-
+        A newline ('\n') will advance to the left side of the next row.
         Lines that are too long automatically continue on next line.
 
         Only characters with an ``ord()`` value between 0 and 255 are currently
@@ -198,11 +193,8 @@ class LCD(object):
         """
         for char in string:
             if char == '\n':
-                # Advance to next row, at same column position
-                self.set_cursor_pos((self._row + 1) % self.num_rows, self._col)
-            elif char == '\r':
-                # Return to left side of current row.
-                self.set_cursor_pos(self._row, 0)
+                # Advance to next row, at left side. Wrap around to top row if at bottom.
+                self.set_cursor_pos((self._row + 1) % self.num_rows, 0)
             else:
                 self.write(ord(char))
 
@@ -290,9 +282,8 @@ class LCD(object):
             self._col += 1
         else:
             # At end of line: go to left side next row. Wrap around to first row if on last row.
-            self.set_cursor_pos((self._row + 1) % self.num_rows, 0)
+            self._row = (self._row + 1) % self.num_rows
+            self._col = 0
 
-        # Internal increment may put cursor at wrong place. Reset to where we
-        # want the next character to go.
         self.set_cursor_pos(self._row, self._col)
 
