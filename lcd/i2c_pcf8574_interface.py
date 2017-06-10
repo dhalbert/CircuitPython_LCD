@@ -24,16 +24,13 @@ import busio
 import board
 from adafruit_bus_device.i2c_device import I2CDevice
 
-from .lcd import LCD_4BITMODE, LCD_BACKLIGHT, LCD_NOBACKLIGHT, PIN_ENABLE
+from .lcd import PIN_ENABLE, LCD_BACKLIGHT
 
 MICROSECOND = 1e-6
 MILLISECOND = 1e-3
 
 class I2CPCF8574Interface:
     
-    # Bit values to turn backlight on/off. Indexed by a boolean.
-    _BACKLIGHT_VALUES = (LCD_NOBACKLIGHT, LCD_BACKLIGHT)
-
     def __init__(self, address):
         """
         CharLCD via PCF8574 I2C port expander.
@@ -47,8 +44,6 @@ class I2CPCF8574Interface:
         """
         self.address = address
 
-        self._backlight_pin_state = LCD_BACKLIGHT
-        
         self.i2c = busio.I2C(board.SCL, board.SDA)
         self.i2c_device = I2CDevice(self.i2c, self.address)
         self.data_buffer = bytearray(1)
@@ -56,26 +51,13 @@ class I2CPCF8574Interface:
     def deinit(self):
         self.i2c.deinit()
 
-    @property
-    def data_bus_mode(self):
-        return LCD_4BITMODE
-
-    @property
-    def backlight(self):
-        return self._backlight_pin_state == LCD_BACKLIGHT
-
-    @backlight.setter
-    def backlight(self, value):
-        self._backlight_pin_state = _BACKLIGHT_VALUES[value]
-        self._i2c_write(self._backlight_pin_state)
-
     # Low level commands
 
     def send(self, value, rs_mode):
         """Send the specified value to the display in 4-bit nibbles.
         The rs_mode is either ``_RS_DATA`` or ``_RS_INSTRUCTION``."""
-        self._write4bits(rs_mode | (value & 0xF0) | self._backlight_pin_state)
-        self._write4bits(rs_mode | ((value << 4) & 0xF0) | self._backlight_pin_state)
+        self._write4bits(rs_mode | (value & 0xF0) | LCD_BACKLIGHT)
+        self._write4bits(rs_mode | ((value << 4) & 0xF0) | LCD_BACKLIGHT)
 
     def _write4bits(self, value):
         """Pulse the `enable` flag to process value."""
