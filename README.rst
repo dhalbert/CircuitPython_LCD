@@ -45,4 +45,4 @@ The interface to the LCD is separated into the LCD_I2C class. It inherits from t
     # Make the cursor visible as a line.
     lcd.set_cursor_mode(CursorMode.LINE)
 
-![Image of the LCD in action](LCD.jpg)
+![Image of the LCD in action](./LCD.jpg)
