@@ -160,7 +160,7 @@ class LCD(object):
         self.clear()
 
     def close(self):
-        deinit()
+        self.deinit()
 
     def set_backlight(self, value):
         self.backlight = value
