@@ -18,8 +18,18 @@
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+# Some modifications made by Pascal Deneaux (pascal@deneaux.de) 13.10.2018
+
 import time
 from micropython import const
+import busio
+import board
+from adafruit_bus_device.i2c_device import I2CDevice
+
+MICROSECOND = 1e-6
+MILLISECOND = 1e-3
+
+_PCF8574_ADDRESS = const(0x3F)
 
 # Commands
 _LCD_CLEARDISPLAY = const(0x01)
@@ -82,17 +92,15 @@ MILLISECOND = 1e-3
 
 class LCD(object):
 
-    def __init__(self, interface, num_cols=20, num_rows=4, char_height=8):
+    def __init__(self, num_cols=20, num_rows=4, char_height=8):
         """
         Character LCD controller.
         
-        :param interface: Communication interface, such as I2CInterface
         :param num_rows: Number of display rows (usually 1, 2 or 4). Default: 4.
         :param num_cols: Number of columns per row (usually 16 or 20). Default 20.
         :param char_height: Some 1 line displays allow a font height of 10px.
                 Allowed: 8 or 10. Default: 8.
         """
-        self.interface = interface
         
         if char_height not in (8, 10):
             raise ValueError('The ``char_height`` argument should be either 8 or 10.')
@@ -105,7 +113,7 @@ class LCD(object):
         self._row_offsets = (0x00, 0x40, self.num_cols, 0x40 + self.num_cols)
  
         # Setup initial display configuration
-        displayfunction = self.interface.data_bus_mode | _LCD_5x8DOTS
+        displayfunction = self.data_bus_mode | _LCD_5x8DOTS
         if self.num_rows == 1:
             displayfunction |= _LCD_1LINE
         elif self.num_rows in (2, 4):
@@ -121,11 +129,11 @@ class LCD(object):
         self.command(0x03)
         time.sleep(4.5*MILLISECOND)
         self.command(0x03)
-        if self.interface.data_bus_mode == LCD_4BITMODE:
+        if self.data_bus_mode == LCD_4BITMODE:
             # Hitachi manual page 46
             time.sleep(100*MICROSECOND)
             self.command(0x02)
-        elif self.interface.data_bus_mode == _LCD_8BITMODE:
+        elif self.data_bus_mode == _LCD_8BITMODE:
             # Hitachi manual page 45
             self.command(0x30)
             time.sleep(4.5*MILLISECOND)
@@ -133,7 +141,7 @@ class LCD(object):
             time.sleep(100*MICROSECOND)
             self.command(0x30)
         else:
-            raise ValueError('Invalid data bus mode: {}'.format(self.interface.data_bus_mode))
+            raise ValueError('Invalid data bus mode: {}'.format(self.data_bus_mode))
 
         # Write configuration to display
         self.command(_LCD_FUNCTIONSET | displayfunction)
@@ -152,10 +160,10 @@ class LCD(object):
         self.clear()
 
     def close(self):
-        self.interface.deinit()
+        deinit()
 
     def set_backlight(self, value):
-        self.interface.backlight = value
+        self.backlight = value
 
     def set_display_enabled(self, value):
         self._display_mode = _LCD_DISPLAYON if value else _LCD_DISPLAYOFF
@@ -265,18 +273,18 @@ class LCD(object):
         # Write character to CGRAM
         self.command(_LCD_SETCGRAMADDR | location << 3)
         for row in bitmap:
-            self.interface.send(row, _RS_DATA)
+            self.send(row, _RS_DATA)
 
         # Restore cursor pos
         self.set_cursor_pos(save_row, save_col)
 
     def command(self, value):
         """Send a raw command to the LCD."""
-        self.interface.send(value, _RS_INSTRUCTION)
+        self.send(value, _RS_INSTRUCTION)
 
     def write(self, value):
         """Write a raw character byte to the LCD."""
-        self.interface.send(value, _RS_DATA)
+        self.send(value, _RS_DATA)
         if self._col < self.num_cols - 1:
             # Char was placed on current line. No need to reposition cursor.
             self._col += 1
@@ -287,3 +295,54 @@ class LCD(object):
 
         self.set_cursor_pos(self._row, self._col)
 
+
+class LCD_I2C(LCD):
+    
+    # Bit values to turn backlight on/off. Indexed by a boolean.
+    _BACKLIGHT_VALUES = (LCD_NOBACKLIGHT, LCD_BACKLIGHT)
+
+    def __init__(self, i2c, address=_PCF8574_ADDRESS, num_cols=20, num_rows=4, char_height=8):
+        import adafruit_bus_device.i2c_device as i2c_device
+        self._i2c = i2c_device.I2CDevice(i2c, address)
+        self._backlight_pin_state = LCD_BACKLIGHT
+        self.data_buffer = bytearray(1)
+        super().__init__(num_cols, num_rows, char_height)
+
+    def deinit(self):
+        self.i2c.deinit()
+
+    @property
+    def data_bus_mode(self):
+        return LCD_4BITMODE
+
+    @property
+    def backlight(self):
+        return self._backlight_pin_state == LCD_BACKLIGHT
+
+    @backlight.setter
+    def backlight(self, value):
+        self._backlight_pin_state = _BACKLIGHT_VALUES[value]
+        self._i2c_write(self._backlight_pin_state)
+
+    # Low level commands
+
+    def send(self, value, rs_mode):
+        """Send the specified value to the display in 4-bit nibbles.
+        The rs_mode is either ``_RS_DATA`` or ``_RS_INSTRUCTION``."""
+        self._write4bits(rs_mode | (value & 0xF0) | self._backlight_pin_state)
+        self._write4bits(rs_mode | ((value << 4) & 0xF0) | self._backlight_pin_state)
+
+    def _write4bits(self, value):
+        """Pulse the `enable` flag to process value."""
+        with self._i2c:
+            self._i2c_write(value & ~PIN_ENABLE)
+            time.sleep(MICROSECOND)
+            self._i2c_write(value | PIN_ENABLE)
+            time.sleep(MICROSECOND)
+            self._i2c_write(value & ~PIN_ENABLE)
+        # Wait for command to complete.
+        time.sleep(100*MICROSECOND)
+
+    def _i2c_write(self, value):
+        self.data_buffer[0] = value
+        self._i2c.write(self.data_buffer)
