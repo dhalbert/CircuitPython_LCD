@@ -20,7 +20,7 @@ The interface to the LCD is separated into the LCD_I2C class. It inherits from t
 
 .. code-block:: python
 
-    from demos.lcd import LCD, LCD_I2C, CursorMode
+    from lcd import LCD, LCD_I2C, CursorMode
 
     # Create the I2C interface.
     from busio import I2C
