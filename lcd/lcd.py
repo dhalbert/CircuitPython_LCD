@@ -20,6 +20,7 @@
 
 import time
 from micropython import const
+import microcontroller
 
 # Commands
 _LCD_CLEARDISPLAY = const(0x01)
@@ -60,27 +61,26 @@ PIN_ENABLE = const(0x4)
 PIN_READ_WRITE = const(0x2)
 PIN_REGISTER_SELECT = const(0x1)
 
-MICROSECOND = 1e-6
-MILLISECOND = 1e-3
-
 class LCD(object):
 
     def __init__(self, interface, num_cols=20, num_rows=4):
         """
         Character LCD controller.
-        
+
         :param interface: Communication interface, such as I2CInterface
         :param num_rows: Number of display rows (usually 1, 2 or 4). Default: 4.
         :param num_cols: Number of columns per row (usually 16 or 20). Default 20.
         """
         self.interface = interface
-        
+
         self.num_rows = num_rows
         self.num_cols = num_cols
-        
+
+        self._row = self._col = 0
+
         # get row addresses (varies based on display size)
         self._row_offsets = (0x00, 0x40, self.num_cols, 0x40 + self.num_cols)
- 
+
         # Setup initial display configuration
         displayfunction = LCD_4BITMODE | _LCD_5x8DOTS
         if self.num_rows == 1:
@@ -89,27 +89,30 @@ class LCD(object):
             # LCD only uses two lines on 4 row displays
             displayfunction |= _LCD_2LINE
 
+        # Wait at least 40ms on power-up
+        time.sleep(0.050)
         # Assume 4-bit mode
         self.command(0x03)
-        time.sleep(4.5*MILLISECOND)
+        time.sleep(0.0045)
         self.command(0x03)
-        time.sleep(4.5*MILLISECOND)
+        time.sleep(0.0045)
         self.command(0x03)
         # Hitachi manual page 46
-        time.sleep(100*MICROSECOND)
+        microcontroller.delay_us(150)
         self.command(0x02)
+        time.sleep(0.003)
 
         # Write configuration to display
         self.command(_LCD_FUNCTIONSET | displayfunction)
-        time.sleep(50*MICROSECOND)
+        microcontroller.delay_us(50)
 
         # Configure entry mode. Define internal fields.
         self.command(_LCD_ENTRYMODESET | _LCD_ENTRYLEFT)
-        time.sleep(50*MICROSECOND)
+        microcontroller.delay_us(50)
 
         # Configure display mode. Define internal fields.
         self.command(_LCD_DISPLAYCONTROL | _LCD_DISPLAYON | _LCD_CURSOROFF | _LCD_BLINKOFF)
-        time.sleep(50*MICROSECOND)
+        microcontroller.delay_us(50)
 
         self.clear()
 
@@ -121,18 +124,18 @@ class LCD(object):
         return (self._row, self._col)
 
     def set_cursor_pos(self, row, col):
-        if not (0 <= row < self.num_rows):
-            raise ValueError('row should be in range 0-{}'.format(self.num_rows - 1))
-        if not (0 <= col < self.num_cols):
-            raise ValueError('col should be in range 0-{}'.format(self.num_cols - 1))
+        if not 0 <= row < self.num_rows:
+            raise ValueError('row not in range 0-{}'.format(self.num_rows - 1))
+        if not 0 <= col < self.num_cols:
+            raise ValueError('col not in range 0-{}'.format(self.num_cols - 1))
         self._row = row
         self._col = col
         self.command(_LCD_SETDDRAMADDR | self._row_offsets[row] + col)
-        time.sleep(50*MICROSECOND)
+        microcontroller.delay_us(50)
 
-    def print(self, string):
+    def print(self, *strings):
         """
-        Write the specified unicode string to the display.
+        Write the specified unicode strings to the display.
         A newline ('\n') will advance to the left side of the next row.
         Lines that are too long automatically continue on next line.
 
@@ -140,18 +143,19 @@ class LCD(object):
         supported.
 
         """
-        for char in string:
-            if char == '\n':
-                # Advance to next row, at left side. Wrap around to top row if at bottom.
-                self.set_cursor_pos((self._row + 1) % self.num_rows, 0)
-            else:
-                self.write(ord(char))
+        for string in strings:
+            for char in string:
+                if char == '\n':
+                    # Advance to next row, at left side. Wrap around to top row if at bottom.
+                    self.set_cursor_pos((self._row + 1) % self.num_rows, 0)
+                else:
+                    self.write(ord(char))
 
 
     def clear(self):
         """Overwrite display with blank characters and reset cursor position."""
         self.command(_LCD_CLEARDISPLAY)
-        time.sleep(2*MILLISECOND)
+        time.sleep(0.003)
         self.home()
 
     def home(self):
@@ -159,7 +163,7 @@ class LCD(object):
         self.command(_LCD_RETURNHOME)
         self._row = 0
         self._col = 0
-        time.sleep(2*MILLISECOND)
+        time.sleep(0.002)
 
     def create_char(self, location, bitmap):
         """Create a new character.
@@ -200,6 +204,7 @@ class LCD(object):
         self.command(_LCD_SETCGRAMADDR | location << 3)
         for row in bitmap:
             self.interface.send(row, _RS_DATA)
+            microcontroller.delay_us(50)
 
         # Restore cursor pos
         self.set_cursor_pos(save_row, save_col)
@@ -207,10 +212,12 @@ class LCD(object):
     def command(self, value):
         """Send a raw command to the LCD."""
         self.interface.send(value, _RS_INSTRUCTION)
+        microcontroller.delay_us(50)
 
     def write(self, value):
         """Write a raw character byte to the LCD."""
         self.interface.send(value, _RS_DATA)
+        microcontroller.delay_us(50)
         if self._col < self.num_cols - 1:
             # Char was placed on current line. No need to reposition cursor.
             self._col += 1
@@ -220,4 +227,3 @@ class LCD(object):
             self._col = 0
 
         self.set_cursor_pos(self._row, self._col)
-

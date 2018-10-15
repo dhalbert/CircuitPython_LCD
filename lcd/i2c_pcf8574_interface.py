@@ -18,19 +18,17 @@
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-import time
+"""Low-level interface to PCF8574."""
 
 import busio
 import board
+import microcontroller
 from adafruit_bus_device.i2c_device import I2CDevice
 
 from .lcd import PIN_ENABLE, LCD_BACKLIGHT
 
-MICROSECOND = 1e-6
-MILLISECOND = 1e-3
-
 class I2CPCF8574Interface:
-    
+    """Write to PCF8574."""
     def __init__(self, address):
         """
         CharLCD via PCF8574 I2C port expander.
@@ -49,6 +47,7 @@ class I2CPCF8574Interface:
         self.data_buffer = bytearray(1)
 
     def deinit(self):
+        """Done using this interface."""
         self.i2c.deinit()
 
     # Low level commands
@@ -63,12 +62,12 @@ class I2CPCF8574Interface:
         """Pulse the `enable` flag to process value."""
         with self.i2c_device:
             self._i2c_write(value & ~PIN_ENABLE)
-            time.sleep(MICROSECOND)
+            microcontroller.delay_us(1)
             self._i2c_write(value | PIN_ENABLE)
-            time.sleep(MICROSECOND)
+            microcontroller.delay_us(1)
             self._i2c_write(value & ~PIN_ENABLE)
         # Wait for command to complete.
-        time.sleep(100*MICROSECOND)
+        microcontroller.delay_us(100)
 
     def _i2c_write(self, value):
         self.data_buffer[0] = value
