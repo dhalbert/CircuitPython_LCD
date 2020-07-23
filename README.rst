@@ -7,7 +7,8 @@ Currently PCF8574 is supported.
 The original code started with the RPLCD library by Danilo Bargen, in https://github.com/dbrgn/RPLCD,
 but it has been reworked considerably.
 
-``lcd/lcd.py`` is too big to use as ``.py``. Use ``mpy-cross`` to convert the ``.py`` files into ``.mpy``.
+On SAMD21 (M0) boards, ``lcd/lcd.py`` is too big to use as ``.py``. Use ``mpy-cross`` to convert the ``.py`` files into ``.mpy``.
+Also, use the ``minimal`` branch, to save space, if you don't need all the features in the main branch.
 
 Usage Example
 =============
