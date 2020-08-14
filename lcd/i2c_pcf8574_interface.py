@@ -22,6 +22,7 @@
 
 import busio
 import board
+import time
 from adafruit_bus_device.i2c_device import I2CDevice
 
 from .lcd import LCD_4BITMODE, LCD_BACKLIGHT, LCD_NOBACKLIGHT, PIN_ENABLE
@@ -81,12 +82,12 @@ class I2CPCF8574Interface:
             self._i2c_write(value & ~PIN_ENABLE)
             # This 1us delay is probably unnecessary, given the time needed
             # to execute the statements.
-            microcontroller.delay_us(1)
+            time.sleep(0.000001)
             self._i2c_write(value | PIN_ENABLE)
-            microcontroller.delay_us(1)
+            time.sleep(0.000001)
             self._i2c_write(value & ~PIN_ENABLE)
         # Wait for command to complete.
-        microcontroller.delay_us(100)
+        time.sleep(0.0001)
 
     def _i2c_write(self, value):
         self.data_buffer[0] = value
