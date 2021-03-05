@@ -22,6 +22,7 @@
 
 import busio
 import board
+import microcontroller
 from adafruit_bus_device.i2c_device import I2CDevice
 
 from .lcd import LCD_4BITMODE, LCD_BACKLIGHT, LCD_NOBACKLIGHT, PIN_ENABLE
