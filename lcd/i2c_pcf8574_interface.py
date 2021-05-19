@@ -29,7 +29,7 @@ from .lcd import PIN_ENABLE, LCD_BACKLIGHT
 
 class I2CPCF8574Interface:
     """Write to PCF8574."""
-    def __init__(self, address):
+    def __init__(self, i2c, address):
         """
         CharLCD via PCF8574 I2C port expander.
 
@@ -42,7 +42,7 @@ class I2CPCF8574Interface:
         """
         self.address = address
 
-        self.i2c = busio.I2C(board.SCL, board.SDA)
+        self.i2c = i2c
         self.i2c_device = I2CDevice(self.i2c, self.address)
         self.data_buffer = bytearray(1)
 
