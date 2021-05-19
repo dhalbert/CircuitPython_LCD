@@ -29,11 +29,11 @@ from .lcd import LCD_4BITMODE, LCD_BACKLIGHT, LCD_NOBACKLIGHT, PIN_ENABLE
 
 
 class I2CPCF8574Interface:
-    
+
     # Bit values to turn backlight on/off. Indexed by a boolean.
     _BACKLIGHT_VALUES = (LCD_NOBACKLIGHT, LCD_BACKLIGHT)
 
-    def __init__(self, address):
+    def __init__(self, i2c, address):
         """
         CharLCD via PCF8574 I2C port expander.
 
@@ -47,8 +47,8 @@ class I2CPCF8574Interface:
         self.address = address
 
         self._backlight_pin_state = LCD_BACKLIGHT
-        
-        self.i2c = busio.I2C(board.SCL, board.SDA)
+
+        self.i2c = i2c
         self.i2c_device = I2CDevice(self.i2c, self.address)
         self.data_buffer = bytearray(1)
 
@@ -65,8 +65,9 @@ class I2CPCF8574Interface:
 
     @backlight.setter
     def backlight(self, value):
-        self._backlight_pin_state = _BACKLIGHT_VALUES[value]
-        self._i2c_write(self._backlight_pin_state)
+        self._backlight_pin_state = self._BACKLIGHT_VALUES[value]
+        with self.i2c_device:
+            self._i2c_write(self._backlight_pin_state)
 
     # Low level commands
 
